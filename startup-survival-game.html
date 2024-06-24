@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Startup Survival Game</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+        }
+        #gameCanvas {
+            background-color: #f0f0f0;
+        }
+        #runway, #time, #speed {
+            position: absolute;
+            top: 10px;
+            font-size: 20px;
+            color: #333;
+        }
+        #runway { left: 10px; }
+        #time { right: 10px; }
+        #speed { left: 50%; transform: translateX(-50%); }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <div id="runway">Runway: 25</div>
+    <div id="time">Time: 0s</div>
+    <div id="speed">Speed: 100%</div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const runwayElement = document.getElementById('runway');
+        const timeElement = document.getElementById('time');
+        const speedElement = document.getElementById('speed');
+
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        let runway = 25;
+        let startupX = canvas.width / 2;
+        const startupY = canvas.height - 80;
+        const characterSize = 64;
+        let vcs = [];
+        let revenues = [];
+        let expenses = [];
+        let fallingSpeed = 2;
+        let speedMultiplier = 1;
+        let lastSpeedIncreaseTime = 0;
+        let lastRevenueTime = 0;
+        let lastExpenseTime = 0;
+        let startTime = Date.now();
+        let gameOver = false;
+
+        const startupSVG = `
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+            <rect width="64" height="64" fill="#f0f0f0"/>
+            <rect x="24" y="32" width="16" height="24" fill="#4a90e2"/>
+            <rect x="24" y="16" width="16" height="16" fill="#ffcc66"/>
+            <rect x="24" y="16" width="16" height="4" fill="#663300"/>
+            <rect x="24" y="16" width="4" height="8" fill="#663300"/>
+            <rect x="28" y="24" width="4" height="4" fill="#000000"/>
+            <rect x="36" y="24" width="4" height="4" fill="#000000"/>
+            <rect x="32" y="32" width="4" height="4" fill="#ff6666"/>
+            <rect x="16" y="32" width="8" height="4" fill="#ffcc66"/>
+            <rect x="40" y="32" width="8" height="4" fill="#ffcc66"/>
+            <rect x="24" y="40" width="16" height="8" fill="#999999"/>
+            <rect x="28" y="44" width="8" height="4" fill="#666666"/>
+        </svg>`;
+
+        const goldVCSVG = `
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+            <rect width="64" height="64" fill="#f0f0f0"/>
+            <rect x="24" y="32" width="16" height="24" fill="#FFD700"/>
+            <rect x="24" y="16" width="16" height="16" fill="#FFD700"/>
+            <rect x="28" y="24" width="4" height="4" fill="#000000"/>
+            <rect x="36" y="24" width="4" height="4" fill="#000000"/>
+            <rect x="32" y="32" width="4" height="4" fill="#000000"/>
+            <rect x="16" y="32" width="8" height="4" fill="#FFD700"/>
+            <rect x="40" y="32" width="8" height="4" fill="#FFD700"/>
+            <text x="32" y="48" font-family="Arial" font-size="16" fill="#000000" text-anchor="middle" dominant-baseline="middle">$1</text>
+        </svg>`;
+
+        const blackVCSVG = `
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+            <rect width="64" height="64" fill="#f0f0f0"/>
+            <rect x="24" y="32" width="16" height="24" fill="#000000"/>
+            <rect x="24" y="16" width="16" height="16" fill="#000000"/>
+            <rect x="28" y="24" width="4" height="4" fill="#ffffff"/>
+            <rect x="36" y="24" width="4" height="4" fill="#ffffff"/>
+            <rect x="32" y="32" width="4" height="4" fill="#ffffff"/>
+            <rect x="16" y="32" width="8" height="4" fill="#000000"/>
+            <rect x="40" y="32" width="8" height="4" fill="#000000"/>
+            <text x="32" y="48" font-family="Arial" font-size="16" fill="#ffffff" text-anchor="middle" dominant-baseline="middle">$5</text>
+        </svg>`;
+
+        const revenueSVG = `
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+            <circle cx="32" cy="32" r="30" fill="#00ff00"/>
+            <text x="32" y="32" font-family="Arial" font-size="24" fill="#000000" text-anchor="middle" dominant-baseline="middle"></text>
+        </svg>`;
+
+        const expenseSVG = `
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+            <circle cx="32" cy="32" r="30" fill="#ff0000"/>
+            <text x="32" y="32" font-family="Arial" font-size="24" fill="#ffffff" text-anchor="middle" dominant-baseline="middle"></text>
+        </svg>`;
+
+        let startupImage = new Image();
+        let goldVCImage = new Image();
+        let blackVCImage = new Image();
+        let revenueImage = new Image();
+        let expenseImage = new Image();
+
+        function loadSVG(svg, callback) {
+            const blob = new Blob([svg], {type: 'image/svg+xml'});
+            const url = URL.createObjectURL(blob);
+            const img = new Image();
+            img.onload = () => {
+                URL.revokeObjectURL(url);
+                callback(img);
+            };
+            img.src = url;
+        }
+
+        function init() {
+            loadSVG(startupSVG, (img) => {
+                startupImage = img;
+                loadSVG(goldVCSVG, (img) => {
+                    goldVCImage = img;
+                    loadSVG(blackVCSVG, (img) => {
+                        blackVCImage = img;
+                        loadSVG(revenueSVG, (img) => {
+                            revenueImage = img;
+                            loadSVG(expenseSVG, (img) => {
+                                expenseImage = img;
+                                // All images loaded, start the game
+                                lastSpeedIncreaseTime = Date.now();
+                                lastRevenueTime = Date.now();
+                                lastExpenseTime = Date.now();
+                                startTime = Date.now();
+                                updateGame();
+                            });
+                        });
+                    });
+                });
+            });
+        }
+
+        function updateGame() {
+            if (gameOver) return;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            ctx.drawImage(startupImage, startupX, startupY, characterSize, characterSize);
+
+            // Check if 10 seconds have passed since the last speed increase
+            if (Date.now() - lastSpeedIncreaseTime >= 10000 && speedMultiplier < 5) {
+                speedMultiplier *= 1.10;
+                speedMultiplier = Math.min(speedMultiplier, 5);  // Cap at 500%
+                lastSpeedIncreaseTime = Date.now();
+            }
+
+            // Check if 4 seconds have passed to add new revenue
+            if (Date.now() - lastRevenueTime >= 4000) {
+                revenues.push({
+                    x: Math.random() * (canvas.width - characterSize),
+                    y: 0,
+                    value: Math.floor(Math.random() * 10) + 1 // Random number between 1 and 10
+                });
+                lastRevenueTime = Date.now();
+            }
+
+            // Check if 1 second has passed to add new expense
+            if (Date.now() - lastExpenseTime >= 1000) {
+                expenses.push({
+                    x: Math.random() * (canvas.width - characterSize),
+                    y: 0,
+                    value: -(Math.floor(Math.random() * 10) + 1) // Random number between -1 and -10
+                });
+                lastExpenseTime = Date.now();
+            }
+
+            vcs.forEach((vc, index) => {
+                vc.y += fallingSpeed * speedMultiplier;
+                ctx.drawImage(vc.type === 'gold' ? goldVCImage : blackVCImage, vc.x, vc.y, characterSize, characterSize);
+
+                if (vc.y + characterSize > startupY && vc.x < startupX + characterSize && vc.x + characterSize > startupX) {
+                    runway += vc.type === 'gold' ? 1 : 5;
+                    vcs.splice(index, 1);
+                }
+
+                if (vc.y > canvas.height) {
+                    vcs.splice(index, 1);
+                }
+            });
+
+            revenues.forEach((revenue, index) => {
+                revenue.y += fallingSpeed * speedMultiplier;
+                ctx.drawImage(revenueImage, revenue.x, revenue.y, characterSize, characterSize);
+                ctx.fillStyle = "#000000";
+                ctx.font = "20px Arial";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillText(revenue.value, revenue.x + characterSize/2, revenue.y + characterSize/2);
+
+                if (revenue.y + characterSize > startupY && revenue.x < startupX + characterSize && revenue.x + characterSize > startupX) {
+                    runway += revenue.value;
+                    revenues.splice(index, 1);
+                }
+
+                if (revenue.y > canvas.height) {
+                    revenues.splice(index, 1);
+                }
+            });
+
+            expenses.forEach((expense, index) => {
+                expense.y += fallingSpeed * speedMultiplier;
+                ctx.drawImage(expenseImage, expense.x, expense.y, characterSize, characterSize);
+                ctx.fillStyle = "#ffffff";
+                ctx.font = "20px Arial";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillText(expense.value, expense.x + characterSize/2, expense.y + characterSize/2);
+
+                if (expense.y + characterSize > startupY && expense.x < startupX + characterSize && expense.x + characterSize > startupX) {
+                    runway += expense.value; // This will decrease the runway
+                    expenses.splice(index, 1);
+                }
+
+                if (expense.y > canvas.height) {
+                    expenses.splice(index, 1);
+                }
+            });
+
+            if (Math.random() < 0.02) {
+                vcs.push({
+                    x: Math.random() * (canvas.width - characterSize),
+                    y: 0,
+                    type: Math.random() < 0.9 ? 'gold' : 'black'
+                });
+            }
+
+            const currentTime = Math.floor((Date.now() - startTime) / 1000);
+            runwayElement.textContent = `Runway: ${Math.ceil(runway)}`;
+            timeElement.textContent = `Time: ${currentTime}s`;
+            speedElement.textContent = `Speed: ${Math.round(speedMultiplier * 100)}%`;
+
+            if (runway <= 0) {
+                gameOver = true;
+                alert(`Game Over! You survived for ${currentTime} seconds. Congratulations!`);
+                resetGame();
+            }
+
+            runway -= 1/60;  // Decrease runway by 1 second every 60 frames (assuming 60 FPS)
+
+            requestAnimationFrame(updateGame);
+        }
+
+        function resetGame() {
+            runway = 25;
+            startupX = canvas.width / 2;
+            vcs = [];
+            revenues = [];
+            expenses = [];
+            speedMultiplier = 1;
+            lastSpeedIncreaseTime = Date.now();
+            lastRevenueTime = Date.now();
+            lastExpenseTime = Date.now();
+            startTime = Date.now();
+            gameOver = false;
+            updateGame();
+        }
+
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'ArrowLeft' && startupX > 0) {
+                startupX -= 20;
+            } else if (event.key === 'ArrowRight' && startupX < canvas.width - characterSize) {
+                startupX += 20;
+            }
+        });
+
+        init();
+    </script>
+</body>
+</html>
