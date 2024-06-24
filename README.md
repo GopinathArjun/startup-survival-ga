@@ -1,3 +1,1 @@
-just a quick html style arcade game.
-
-Just download the html file "startup-survival-game.html" and try it out. 
+Just download the "startup-survival-game.html" and try it out. works only on desktop
